@@ -247,7 +247,7 @@ local function GetSorter(frame)
     return frame
   end
   local tab = frame.currentTab
-  if tab and type(tab.CombineStacksAndSort) == "function" then
+  if type(tab) == "table" and type(tab.CombineStacksAndSort) == "function" then
     return tab
   end
   return nil

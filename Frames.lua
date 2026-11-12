@@ -168,6 +168,28 @@ local function OnSmartNavSelect(frame)
   addonTable.Legend.RequestRefresh(frame)
 end
 
+-- The ButtonFrameTemplate's own gamepad handlers (focus glow, jump hints,
+-- selection refresh) are chained rather than replaced. The reentrancy flag
+-- keeps a chained handler bouncing back through the focus manager from looping.
+local function ChainGamepadMethod(frame, name, handler)
+  local original = frame[name]
+  local inside = false
+  frame[name] = function(self, ...)
+    if inside then
+      return
+    end
+    inside = true
+    if type(original) == "function" then
+      pcall(original, self, ...)
+    end
+    local ok, err = pcall(handler, self, ...)
+    inside = false
+    if not ok then
+      print("Baganator Controller: " .. tostring(err))
+    end
+  end
+end
+
 local function Setup(frame, kind)
   if infoByFrame[frame] then
     return
@@ -178,15 +200,17 @@ local function Setup(frame, kind)
   frame:HookScript("OnShow", OnFrameShow)
   frame:HookScript("OnHide", OnFrameHide)
 
-  frame.FocusGamepad = OnFocusGamepad
-  frame.UnfocusGamepad = OnUnfocusGamepad
+  ChainGamepadMethod(frame, "FocusGamepad", OnFocusGamepad)
+  ChainGamepadMethod(frame, "UnfocusGamepad", OnUnfocusGamepad)
+  -- The close handler is an intentional replacement: windows close through the
+  -- B path so a held item is not left in limbo.
   frame.SmartNavigationCloseHandler = addonTable.Actions.CloseHandler
-  frame.SmartNavigationOnSelect = OnSmartNavSelect
-  frame.smartNavPanelInfoAddedCallback = function()
+  ChainGamepadMethod(frame, "SmartNavigationOnSelect", OnSmartNavSelect)
+  ChainGamepadMethod(frame, "smartNavPanelInfoAddedCallback", function()
     if Core.CanTouchGamepadUI() then
       ApplyTarget(frame)
     end
-  end
+  end)
 
   if frame:IsVisible() then
     OnFrameShow(frame)
@@ -249,6 +273,31 @@ local function RefreshNavigation()
   end
 end
 
+-- Baganator drops skin frames when layouts or skins are swapped; those frames
+-- would otherwise sit in infoByFrame (and the focus manager) forever.
+local function ForgetStaleFrames()
+  local skins = Baganator.API.Skins
+  if type(skins.GetAllFrames) ~= "function" then
+    return
+  end
+  local allFrames = skins.GetAllFrames()
+  if type(allFrames) ~= "table" then
+    return
+  end
+  local live = {}
+  for _, details in ipairs(allFrames) do
+    if type(details) == "table" and type(details.region) == "table" then
+      live[details.region] = true
+    end
+  end
+  for frame, info in pairs(infoByFrame) do
+    if not live[frame] then
+      Unregister(info)
+      infoByFrame[frame] = nil
+    end
+  end
+end
+
 function Frames.RequestRefresh()
   if refreshQueued then
     return
@@ -256,6 +305,7 @@ function Frames.RequestRefresh()
   refreshQueued = true
   Core.NextFrame(function()
     refreshQueued = false
+    ForgetStaleFrames()
     RefreshNavigation()
   end)
 end
