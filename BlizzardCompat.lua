@@ -33,7 +33,13 @@ local function OnFocusManagerFrameShown(manager, frame)
     return
   end
   if IsOrphanedBlizzardFrame(frame) and Core.IsTracked(frame) then
-    manager:FrameHidden(frame)
+    -- This hookscript runs inside Blizzard's own (possibly secure) frame
+    -- registration; deferring keeps manager calls out of that execution.
+    Core.NextFrame(function()
+      if Core.CanTouchGamepadUI() and Core.IsTracked(frame) then
+        manager:FrameHidden(frame)
+      end
+    end)
   end
 end
 
@@ -75,23 +81,8 @@ local function OnToggleBackpackCombined()
     or stack:find("CloseAllBags", 1, true) then
     return
   end
-  SyncBaganatorToBlizzardBagState()
-end
-
-local function OnBaganatorFrameVisibilityChanged(info, shown)
-  if info.kind ~= Constants.Kind.Backpack or not Core.IsGamepadUIEnabled() then
-    return
-  end
-  if not IsBlizzardBagFrameHiddenByBaganator() then
-    return
-  end
-  if shown then
-    if not ContainerFrameCombinedBags:IsShown() then
-      ContainerFrameCombinedBags:Show()
-    end
-  elseif not AnyBackpackVisible() and ContainerFrameCombinedBags:IsShown() then
-    ContainerFrameCombinedBags:Hide()
-  end
+  -- Radial-menu clicks run in a secure flow; sync from the next frame instead.
+  Core.NextFrame(SyncBaganatorToBlizzardBagState)
 end
 
 ----------------------------------------------------------------------------
@@ -106,5 +97,4 @@ function BlizzardCompat.Initialize()
   if type(ToggleBackpack_Combined) == "function" then
     hooksecurefunc("ToggleBackpack_Combined", OnToggleBackpackCombined)
   end
-  Core.RegisterCallback(Constants.Events.FrameVisibilityChanged, OnBaganatorFrameVisibilityChanged)
 end

@@ -129,6 +129,9 @@ local function Register(info)
     end
     ApplyMarkers(info)
     Core.GetFocusManager():FrameShown(info.frame)
+    -- Initial cursor placement. SetTargetButtonForFrame is a public
+    -- SecureHelper call, safe from our deferred context.
+    ApplyTarget(info.frame)
   end)
 end
 
@@ -177,28 +180,39 @@ local function OnUnfocusGamepad(frame)
   Core.TriggerEvent(Events.FrameUnfocused, frame)
 end
 
-local function OnSmartNavSelect(frame)
-  addonTable.Legend.RequestRefresh(frame)
-end
+-- Focus and selection are observed from a ticker instead of wrapping the
+-- template's gamepad callbacks. Any wrapper puts addon code inside Blizzard's
+-- secure navigation execution, which taints the protected actions vertical
+-- navigation needs (scrolling, panel switches) and produces
+-- ADDON_ACTION_FORBIDDEN ("Interface action failed because of an AddOn").
+local lastFocused
+local lastSelected
+local focusTicker
 
--- The ButtonFrameTemplate's own gamepad handlers (focus glow, jump hints,
--- selection refresh) are chained rather than replaced. The reentrancy flag
--- keeps a chained handler bouncing back through the focus manager from looping.
-local function ChainGamepadMethod(frame, name, handler)
-  local original = frame[name]
-  local inside = false
-  frame[name] = function(self, ...)
-    if inside then
-      return
+local function UpdateObserverState()
+  if not Core.CanTouchGamepadUI() then
+    if lastFocused and infoByFrame[lastFocused] then
+      Core.TriggerEvent(Events.FrameUnfocused, lastFocused)
     end
-    inside = true
-    if type(original) == "function" then
-      pcall(original, self, ...)
+    lastFocused = nil
+    lastSelected = nil
+    return
+  end
+  local focused = Core.GetFocusedFrame()
+  if focused ~= lastFocused then
+    if lastFocused and infoByFrame[lastFocused] then
+      Core.TriggerEvent(Events.FrameUnfocused, lastFocused)
     end
-    local ok, err = pcall(handler, self, ...)
-    inside = false
-    if not ok then
-      print("Baganator Controller: " .. tostring(err))
+    lastFocused = focused
+    if focused and infoByFrame[focused] then
+      Core.TriggerEvent(Events.FrameFocused, focused)
+    end
+  end
+  if focused and infoByFrame[focused] then
+    local selected = SmartNavigation:GetCurrentButton()
+    if selected ~= lastSelected then
+      lastSelected = selected
+      addonTable.Legend.RequestRefresh(focused)
     end
   end
 end
@@ -213,21 +227,10 @@ local function Setup(frame, kind)
   frame:HookScript("OnShow", OnFrameShow)
   frame:HookScript("OnHide", OnFrameHide)
 
-  ChainGamepadMethod(frame, "FocusGamepad", OnFocusGamepad)
-  ChainGamepadMethod(frame, "UnfocusGamepad", OnUnfocusGamepad)
   -- The close handler is an intentional replacement: windows close through the
-  -- B path so a held item is not left in limbo.
+  -- B path so a held item is not left in limbo. The template's other gamepad
+  -- callbacks are left completely untouched (see UpdateObserverState).
   frame.SmartNavigationCloseHandler = addonTable.Actions.CloseHandler
-  ChainGamepadMethod(frame, "SmartNavigationOnSelect", OnSmartNavSelect)
-  -- Deferred: this callback is invoked by Blizzard's navigation machinery,
-  -- and ApplyTarget calls the protected SetTargetButtonForFrame.
-  ChainGamepadMethod(frame, "smartNavPanelInfoAddedCallback", function()
-    Core.NextFrame(function()
-      if Core.CanTouchGamepadUI() and infoByFrame[frame] then
-        ApplyTarget(frame)
-      end
-    end)
-  end)
 
   if frame:IsVisible() then
     OnFrameShow(frame)
@@ -264,10 +267,7 @@ function Frames.Sync()
       Unregister(info)
     end
   end
-  local focused = Core.GetFocusedFrame()
-  if focused and infoByFrame[focused] then
-    OnFocusGamepad(focused)
-  end
+  UpdateObserverState()
 end
 
 -- Baganator re-parents item buttons on every layout pass, which SmartNavigation
@@ -348,4 +348,18 @@ function Frames.Initialize()
   if Baganator.CallbackRegistry and type(Baganator.CallbackRegistry.RegisterCallback) == "function" then
     Baganator.CallbackRegistry:RegisterCallback("ViewComplete", Frames.RequestRefresh, Frames)
   end
+
+  if not focusTicker then
+    focusTicker = CreateFrame("Frame")
+    focusTicker:SetScript("OnUpdate", function(self, elapsed)
+      self.elapsed = (self.elapsed or 0) + elapsed
+      if self.elapsed >= 0.2 then
+        self.elapsed = 0
+        UpdateObserverState()
+      end
+    end)
+  end
 end
+
+-- Test entry point for the ticker body.
+Frames.DebugObserverTick = UpdateObserverState
