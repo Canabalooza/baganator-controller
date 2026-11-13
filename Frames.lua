@@ -115,19 +115,32 @@ local function ApplyMarkers(info)
   info.markersApplied = true
 end
 
+-- SecureHelper calls must run outside Blizzard's own script executions
+-- (OnShow/OnHide hookscripts, Blizzard-invoked callbacks): inline calls taint
+-- Blizzard's execution and every protected action after it is refused with
+-- ADDON_ACTION_FORBIDDEN. Baganator itself uses this defer pattern.
 local function Register(info)
   if Core.IsTracked(info.frame) then
     return
   end
-  ApplyMarkers(info)
-  Core.GetFocusManager():FrameShown(info.frame)
+  Core.NextFrame(function()
+    if Core.IsTracked(info.frame) or not Core.CanTouchGamepadUI() then
+      return
+    end
+    ApplyMarkers(info)
+    Core.GetFocusManager():FrameShown(info.frame)
+  end)
 end
 
 local function Unregister(info)
   if not Core.IsTracked(info.frame) then
     return
   end
-  Core.GetFocusManager():FrameHidden(info.frame)
+  Core.NextFrame(function()
+    if Core.IsTracked(info.frame) and Core.CanTouchGamepadUI() then
+      Core.GetFocusManager():FrameHidden(info.frame)
+    end
+  end)
 end
 
 local function OnFrameShow(frame)
@@ -206,10 +219,14 @@ local function Setup(frame, kind)
   -- B path so a held item is not left in limbo.
   frame.SmartNavigationCloseHandler = addonTable.Actions.CloseHandler
   ChainGamepadMethod(frame, "SmartNavigationOnSelect", OnSmartNavSelect)
+  -- Deferred: this callback is invoked by Blizzard's navigation machinery,
+  -- and ApplyTarget calls the protected SetTargetButtonForFrame.
   ChainGamepadMethod(frame, "smartNavPanelInfoAddedCallback", function()
-    if Core.CanTouchGamepadUI() then
-      ApplyTarget(frame)
-    end
+    Core.NextFrame(function()
+      if Core.CanTouchGamepadUI() and infoByFrame[frame] then
+        ApplyTarget(frame)
+      end
+    end)
   end)
 
   if frame:IsVisible() then

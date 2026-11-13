@@ -324,17 +324,21 @@ end
 
 -- SmartNavigationCloseHandler for registered frames; true means handled.
 function Actions.CloseHandler(frame)
-  if CursorHasItem() then
-    ClearCursor()
-    addonTable.Legend.RequestRefresh(frame)
-    return true
-  end
-  local info = addonTable.Frames.GetInfo(frame)
-  if info and info.kind == Kind.Backpack and Baganator and Baganator.CallbackRegistry then
-    Baganator.CallbackRegistry:TriggerEvent("BagHide")
-  else
-    frame:Hide()
-  end
+  -- Invoked by Blizzard's secure B-button path; the protected calls
+  -- (ClearCursor, Hide) are deferred out of that execution context.
+  Core.NextFrame(function()
+    if CursorHasItem() then
+      ClearCursor()
+      addonTable.Legend.RequestRefresh(frame)
+      return
+    end
+    local info = addonTable.Frames.GetInfo(frame)
+    if info and info.kind == Kind.Backpack and Baganator and Baganator.CallbackRegistry then
+      Baganator.CallbackRegistry:TriggerEvent("BagHide")
+    else
+      frame:Hide()
+    end
+  end)
   return true
 end
 

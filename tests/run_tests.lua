@@ -78,6 +78,7 @@ local item2 = Stubs.MakeItemButton(backpack.Container, "Item2", 0, 2, 3000, { le
 local item3 = Stubs.MakeItemButton(backpack.Container, "Item3", 0, 3, nil, { left = 10, top = 360 })
 Stubs.ClearLog()
 backpack:Show()
+Stubs.RunNextFrames()
 Check(Core.IsTracked(backpack), "FrameShown called when the backpack is shown")
 Check(backpack.SearchWidget.ignored, "search widget marked ignored for SmartNavigation")
 Check(SmartNavigation:GetCurrentButton() == item1, "cursor starts on the top-left item button")
@@ -104,6 +105,7 @@ Check(footer:VisibleLabels():find("PAD1=Place", 1, true) ~= nil, "A prompt reads
 Check(footer:VisibleLabels():find("PAD2=Back", 1, true) ~= nil, "B prompt reads Back while carrying an item")
 Stubs.ClearLog()
 Check(SmartNavigation:PressB() == true, "close handler reports handled")
+Stubs.RunNextFrames()
 Check(Stubs.LogContains("ClearCursor") and backpack:IsVisible(), "B drops the held item instead of closing")
 Stubs.cursorHasItem = false
 
@@ -151,6 +153,7 @@ item1:Show()
 Section("close with B")
 Stubs.ClearLog()
 Check(SmartNavigation:PressB() == true, "close handler handled")
+Stubs.RunNextFrames()
 Check(not backpack:IsVisible(), "B closes the backpack through Baganator's BagHide")
 Check(not Core.IsTracked(backpack), "FrameHidden called on hide")
 Check(not footer.isShown, "footer hidden on hide")
@@ -178,23 +181,29 @@ Check(not Core.IsTracked(BankFrame), "invisible BankFrame is unregistered right 
 Section("combat deferral")
 Stubs.combat = true
 backpack:Show()
+Stubs.RunNextFrames()
 Check(not Core.IsTracked(backpack), "no FrameShown while combat restricted")
 Stubs.combat = false
 Stubs.FireEvent("PLAYER_REGEN_ENABLED")
+Stubs.RunNextFrames()
 Check(Core.IsTracked(backpack), "frame registered after combat ends")
 Stubs.combat = true
 backpack:Hide()
+Stubs.RunNextFrames()
 Check(Core.IsTracked(backpack), "no FrameHidden while combat restricted")
 Stubs.combat = false
 Stubs.FireEvent("PLAYER_REGEN_ENABLED")
+Stubs.RunNextFrames()
 Check(not Core.IsTracked(backpack), "stale registration cleaned up after combat")
 
 Section("two frames and unfocus")
 backpack:Show()
 bank:Show()
+Stubs.RunNextFrames()
 Check(fcm.focusedFrame == bank, "newly shown bank takes focus")
 Check(not Stubs.footers[backpack].isShown and Stubs.footers[bank].isShown, "only the focused frame shows a footer")
 bank:Hide()
+Stubs.RunNextFrames()
 Check(fcm.focusedFrame == backpack and Stubs.footers[backpack].isShown, "focus and footer return to the backpack")
 
 Section("leaving the gamepad UI")

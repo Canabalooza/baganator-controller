@@ -32,10 +32,15 @@ Stubs.timers = {}
 Stubs.eventFrames = {}
 
 function Stubs.RunNextFrames()
-  local queue = Stubs.nextFrameQueue
-  Stubs.nextFrameQueue = {}
-  for _, fn in ipairs(queue) do
-    fn()
+  for _ = 1, 8 do
+    local queue = Stubs.nextFrameQueue
+    Stubs.nextFrameQueue = {}
+    for _, fn in ipairs(queue) do
+      fn()
+    end
+    if #Stubs.nextFrameQueue == 0 then
+      break
+    end
   end
 end
 
